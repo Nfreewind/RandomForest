@@ -48,8 +48,8 @@ namespace rf {
 	unsigned char DecisionTreeNode::setLabelFromChildren() {
 		if (children.size() > 0) {
 			QMap<unsigned char, int> votes;
-			for (int i = 0; i < children.size(); ++i) {
-				unsigned char label = children[i]->setLabelFromChildren();
+			for (auto it = children.begin(); it != children.end(); ++it) {
+				unsigned char label = it.value()->setLabelFromChildren();
 				if (!votes.contains(label)) {
 					votes[label] = 0;
 				}
