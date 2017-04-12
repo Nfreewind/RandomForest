@@ -11,21 +11,20 @@ namespace rf {
 	DecisionTreeNode::DecisionTreeNode(int depth) {
 		this->depth = depth;
 		split_attribute_id = -1;
-		label = -1;
+		label = Example::LABEL_UNKNOWN;
 	}
 
-	int DecisionTreeNode::test(const Example& example) {
+	unsigned char DecisionTreeNode::test(const boost::shared_ptr<Example>& example) {
 		// if this is a leaf node, return the label
 		if (children.size() == 0) return label;
 
-		if (children.contains(example.data[split_attribute_id])) {
-			return children[example.data[split_attribute_id]]->test(example);
+		if (children.contains(example->data[split_attribute_id])) {
+			return children[example->data[split_attribute_id]]->test(example);
 		}
 		else {
-			// ToDo
-			// If the value does not exist in the decision tree,
-			// we should use other values and maybe use maximum vote to guess the label
-			return -1;
+			// If the value does not exist in the children,
+			// we use maximum vote to guess the label.
+			return label;
 		}
 	}
 
@@ -46,16 +45,44 @@ namespace rf {
 		return node;
 	}
 
+	unsigned char DecisionTreeNode::setLabelFromChildren() {
+		if (children.size() > 0) {
+			QMap<unsigned char, int> votes;
+			for (int i = 0; i < children.size(); ++i) {
+				unsigned char label = children[i]->setLabelFromChildren();
+				if (!votes.contains(label)) {
+					votes[label] = 0;
+				}
+				votes[label]++;
+			}
+
+			int max_votes = 0;
+			unsigned char max_voted_label;
+			for (auto it = votes.begin(); it != votes.end(); ++it) {
+				if (it.value() > max_votes) {
+					max_votes = it.value();
+					max_voted_label = it.key();
+				}
+			}
+
+			label = max_voted_label;
+		}
+
+		return label;
+	}
+
 	DecisionTree::DecisionTree() {
 	}
 
-	void DecisionTree::construct(const std::vector<Example>& examples, bool sample_attributes, int max_depth) {
+	void DecisionTree::construct(const std::vector<boost::shared_ptr<Example>>& examples, bool sample_attributes, int max_depth) {
 		if (examples.size() == 0) return;
 
 		root = constructNodes(examples, 0, sample_attributes, max_depth);
+
+		root->setLabelFromChildren();
 	}
 
-	int DecisionTree::test(const Example& example) {
+	int DecisionTree::test(const boost::shared_ptr<Example>& example) {
 		if (!root) throw "Tree is not constructed.";
 
 		return root->test(example);
@@ -85,16 +112,16 @@ namespace rf {
 		return tree_node;
 	}
 
-	boost::shared_ptr<DecisionTreeNode> DecisionTree::constructNodes(const std::vector<Example>& examples, int depth, bool sample_attributes, int max_depth) {
+	boost::shared_ptr<DecisionTreeNode> DecisionTree::constructNodes(const std::vector<boost::shared_ptr<Example>>& examples, int depth, bool sample_attributes, int max_depth) {
 		boost::shared_ptr<DecisionTreeNode> node = boost::shared_ptr<DecisionTreeNode>(new DecisionTreeNode(depth));
 
 		// check if the labels are the same across the examples
-		QMap<int, int> labels;
+		QMap<unsigned char, int> labels;
 		for (int i = 0; i < examples.size(); ++i) {
-			if (!labels.contains(examples[i].label)) {
-				labels[examples[i].label] = 0;
+			if (!labels.contains(examples[i]->label)) {
+				labels[examples[i]->label] = 0;
 			}
-			labels[examples[i].label]++;
+			labels[examples[i]->label]++;
 		}
 		if (labels.size() == 1) {
 			// single label, and no need for futher splitting
@@ -104,7 +131,7 @@ namespace rf {
 
 		// check if the depth exceeds the max depth
 		if (depth >= max_depth) {
-			int max_voted_label = -1;
+			unsigned char max_voted_label = Example::LABEL_UNKNOWN;
 			int max_votes = 0;
 			for (auto it = labels.begin(); it != labels.end(); ++it) {
 				if (it.value() > max_votes) {
@@ -120,13 +147,13 @@ namespace rf {
 		// randomly sample the attributes
 		std::vector<unsigned int> indices;
 		if (sample_attributes) {
-			indices = std::vector<unsigned int>(examples[0].data.size());
+			indices = std::vector<unsigned int>(examples[0]->data.size());
 			std::iota(indices.begin(), indices.end(), 0);
 			std::random_shuffle(indices.begin(), indices.end());
 			indices.resize(sqrt(indices.size()));
 		}
 		else {
-			indices = std::vector<unsigned int>(examples[0].data.size());
+			indices = std::vector<unsigned int>(examples[0]->data.size());
 			std::iota(std::begin(indices), std::end(indices), 0);
 		}
 
@@ -143,11 +170,11 @@ namespace rf {
 		node->split_attribute_id = best_attribute;
 
 		// split the examples
-		QMap<int, std::vector<Example>> subsets;
+		QMap<unsigned char, std::vector<boost::shared_ptr<Example>>> subsets;
 		for (int i = 0; i < examples.size(); ++i) {
-			int val = examples[i].data[best_attribute];
+			unsigned char val = examples[i]->data[best_attribute];
 			if (!subsets.contains(val)) {
-				subsets[val] = std::vector<Example>();
+				subsets[val] = std::vector<boost::shared_ptr<Example>>();
 			}
 			subsets[val].push_back(examples[i]);
 		}
@@ -160,15 +187,15 @@ namespace rf {
 		return node;
 	}
 
-	float DecisionTree::calculateEntropy(const std::vector<Example>& examples, int split_attribute) {
+	float DecisionTree::calculateEntropy(const std::vector<boost::shared_ptr<Example>>& examples, int split_attribute) {
 		// split the examples
-		QMap<int, QMap<int, int>> histogram;
-		QMap<int, int> count;
+		QMap<unsigned char, QMap<unsigned char, int>> histogram;
+		QMap<unsigned char, int> count;
 		for (int i = 0; i < examples.size(); ++i) {
-			int val = examples[i].data[split_attribute];
-			int label = examples[i].label;
+			unsigned char val = examples[i]->data[split_attribute];
+			unsigned char label = examples[i]->label;
 			if (!histogram.contains(val)) {
-				histogram[val] = QMap<int, int>();
+				histogram[val] = QMap<unsigned char, int>();
 				count[val] = 0;
 			}
 			if (!histogram[val].contains(label)) {
@@ -200,7 +227,7 @@ namespace rf {
 	RandomForest::RandomForest() {
 	}
 
-	void RandomForest::construct(const std::vector<Example>& examples, int num_trees, float ratio, int max_depth) {
+	void RandomForest::construct(const std::vector<boost::shared_ptr<Example>>& examples, int num_trees, float ratio, int max_depth) {
 		trees.clear();
 
 		for (int i = 0; i < num_trees; ++i) {
@@ -212,7 +239,7 @@ namespace rf {
 			std::random_shuffle(indices.begin(), indices.end());
 			indices.resize(examples.size() * ratio);
 
-			std::vector<Example> subset(indices.size());
+			std::vector<boost::shared_ptr<Example>> subset(indices.size());
 			for (int j = 0; j < subset.size(); ++j) {
 				subset[j] = examples[indices[j]];
 			}
@@ -246,12 +273,12 @@ namespace rf {
 		doc.save(out, 4);
 	}
 
-	int RandomForest::test(const Example& example) {
+	int RandomForest::test(const boost::shared_ptr<Example>& example) {
 		if (trees.size() == 0) throw "Random forest is not constructed.";
 
-		QMap<int, int> histogram;
+		QMap<unsigned char, int> histogram;
 		for (int i = 0; i < trees.size(); ++i) {
-			int label = trees[i].test(example);
+			unsigned char label = trees[i].test(example);
 			if (!histogram.contains(label)) {
 				histogram[label] = 0;
 			}
@@ -260,7 +287,7 @@ namespace rf {
 
 		// find the maximum vote
 		int max_votes = 0;
-		int max_voted_label = -1;
+		unsigned char max_voted_label = Example::LABEL_UNKNOWN;
 		for (auto it = histogram.begin(); it != histogram.end(); ++it) {
 			if (it.value() > max_votes) {
 				max_votes = it.value();
