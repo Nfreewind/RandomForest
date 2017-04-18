@@ -28,7 +28,7 @@ namespace rf {
 
 		unsigned char test(const boost::shared_ptr<Example>& example);
 		QDomElement save(QDomDocument& doc);
-		unsigned char setLabelFromChildren();
+		unsigned char setLabelFromChildren(const QMap<unsigned char, float>& priors);
 	};
 
 	class DecisionTree {
@@ -38,7 +38,7 @@ namespace rf {
 	public:
 		DecisionTree();
 
-		void construct(const std::vector<boost::shared_ptr<Example>>& examples, bool sample_attributes, int max_depth);
+		void construct(const std::vector<boost::shared_ptr<Example>>& examples, bool sample_attributes, int max_depth, const QMap<unsigned char, float>& priors);
 		int test(const boost::shared_ptr<Example>& example);
 		void save(const QString& filename);
 		QDomElement save(QDomDocument& doc);
@@ -51,11 +51,12 @@ namespace rf {
 	class RandomForest {
 	private:
 		std::vector<DecisionTree> trees;
+		QMap<unsigned char, float> priors;
 
 	public:
 		RandomForest();
 
-		void construct(const std::vector<boost::shared_ptr<Example>>& examples, int num_trees, float ratio, int max_depth);
+		void construct(const std::vector<boost::shared_ptr<Example>>& examples, int num_trees, float ratio, int max_depth, const QMap<unsigned char, float>& priors);
 		void save(const QString& filename);
 		int test(const boost::shared_ptr<Example>& example);
 	};

@@ -105,28 +105,31 @@ void MainWindow::onTrainByECP() {
 	QDir ground_truth_dir("../ECP/ground_truth/");
 	QDir images_dir("../ECP/images/");
 
-	std::vector<boost::shared_ptr<rf::Example>> examples;
-
 	QStringList image_files = images_dir.entryList(QDir::NoDotAndDotDot | QDir::Files);// , QDir::DirsFirst);
 
-	// split the images into train and test
+	// split the images into train, val, and test
 	std::vector<unsigned int> indices = std::vector<unsigned int>(image_files.size());
 	std::iota(indices.begin(), indices.end(), 0);
 	std::random_shuffle(indices.begin(), indices.end());
 	QStringList train_image_files;
+	QStringList val_image_files;
 	QStringList test_image_files;
 	for (int i = 0; i < indices.size(); ++i) {
-		if (i < image_files.size() * 0.8) {
+		if (i < image_files.size() * 0.6) {
 			train_image_files.push_back(image_files[i]);
+		}
+		else if (i < image_files.size() * 0.8) {
+			val_image_files.push_back(image_files[i]);
 		}
 		else {
 			test_image_files.push_back(image_files[i]);
 		}
 	}
 
-	printf("Image processing: ");
+	printf("Image processing for training dataset: ");
+	std::vector<boost::shared_ptr<rf::Example>> examples;
 	for (int i = 0; i < train_image_files.size(); ++i) {
-		printf("\rImage processing: %d", i + 1);
+		printf("\rImage processing for training dataset: %d", i + 1);
 
 		// remove the file extension
 		int index = train_image_files[i].lastIndexOf(".");
@@ -159,12 +162,58 @@ void MainWindow::onTrainByECP() {
 
 	// create random forest
 	start = clock();
+	QMap<unsigned char, float> priors;
+	priors[rf::Example::LABEL_WALL] = 1;
+	priors[rf::Example::LABEL_WINDOW] = 1;
+	priors[rf::Example::LABEL_DOOR] = 1;
+	priors[rf::Example::LABEL_BALCONY] = 1;
+	priors[rf::Example::LABEL_SHOP] = 1;
+	priors[rf::Example::LABEL_ROOF] = 1;
+	priors[rf::Example::LABEL_SKY] = 1;
+	priors[rf::Example::LABEL_UNKNOWN] = 0;
 	rf::RandomForest rand_forest;
-	rand_forest.construct(examples, T, r, max_depth);
+	rand_forest.construct(examples, T, r, max_depth, priors);
 	//rand_forest.save("forest.xml");
 	end = clock();
 	std::cout << "Random forest has been created." << std::endl;
 	std::cout << "Elapsed: " << (end - start) / CLOCKS_PER_SEC << " sec." << std::endl;
+
+
+	// release the memory for the training data
+	examples.clear();
+
+
+	printf("Image processing for validation dataset: ");
+	for (int i = 0; i < val_image_files.size(); ++i) {
+		printf("\rImage processing for validation dataset: %d", i + 1);
+
+		// remove the file extension
+		int index = val_image_files[i].lastIndexOf(".");
+		QString filename = val_image_files[i].left(index);
+
+		//std::cout << image_file.toUtf8().constData() << std::endl;
+		cv::Mat image = cv::imread((images_dir.absolutePath() + "/" + filename + ".jpg").toUtf8().constData());
+		cv::Mat ground_truth = cv::imread((ground_truth_dir.absolutePath() + "/" + filename + ".png").toUtf8().constData());
+		//std::cout << "(" << image.rows << " x " << image.cols << ")" << std::endl;
+
+		for (int y = 0; y < image.rows - patch_size + 1; y++) {
+			for (int x = 0; x < image.cols - patch_size + 1; x++) {
+				cv::Mat image_roi = image(cv::Rect(x, y, patch_size, patch_size));
+				//std::cout << roi.rows << "," << roi.cols << std::endl;
+				cv::Vec3b ground_truth_color = ground_truth.at<cv::Vec3b>(y + (patch_size - 1) / 2, x + (patch_size - 1) / 2);
+
+				boost::shared_ptr<rf::Example> example = extractExampleFromPatch(image_roi, ground_truth_color);
+				examples.push_back(example);
+			}
+		}
+	}
+	printf("\n");
+
+
+
+
+
+
 
 	// test
 	start = clock();
@@ -377,7 +426,7 @@ void MainWindow::onDecisionTreeTest() {
 	examples.push_back(example15);
 
 	rf::DecisionTree dt;
-	dt.construct(examples, false, 2);
+	dt.construct(examples, false, 2, QMap<unsigned char, float>());
 	dt.save("test.xml");
 
 	boost::shared_ptr<rf::Example> example16 = boost::shared_ptr<rf::Example>(new rf::Example());

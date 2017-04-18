@@ -45,15 +45,20 @@ namespace rf {
 		return node;
 	}
 
-	unsigned char DecisionTreeNode::setLabelFromChildren() {
+	unsigned char DecisionTreeNode::setLabelFromChildren(const QMap<unsigned char, float>& priors) {
 		if (children.size() > 0) {
-			QMap<unsigned char, int> votes;
+			QMap<unsigned char, float> votes;
 			for (auto it = children.begin(); it != children.end(); ++it) {
-				unsigned char label = it.value()->setLabelFromChildren();
+				unsigned char label = it.value()->setLabelFromChildren(priors);
 				if (!votes.contains(label)) {
 					votes[label] = 0;
 				}
-				votes[label]++;
+				if (priors.size() == 0) {
+					votes[label]++;
+				}
+				else {
+					votes[label] += priors[label];
+				}
 			}
 
 			int max_votes = 0;
@@ -74,12 +79,12 @@ namespace rf {
 	DecisionTree::DecisionTree() {
 	}
 
-	void DecisionTree::construct(const std::vector<boost::shared_ptr<Example>>& examples, bool sample_attributes, int max_depth) {
+	void DecisionTree::construct(const std::vector<boost::shared_ptr<Example>>& examples, bool sample_attributes, int max_depth, const QMap<unsigned char, float>& priors) {
 		if (examples.size() == 0) return;
 
 		root = constructNodes(examples, 0, sample_attributes, max_depth);
 
-		root->setLabelFromChildren();
+		root->setLabelFromChildren(priors);
 	}
 
 	int DecisionTree::test(const boost::shared_ptr<Example>& example) {
@@ -227,7 +232,9 @@ namespace rf {
 	RandomForest::RandomForest() {
 	}
 
-	void RandomForest::construct(const std::vector<boost::shared_ptr<Example>>& examples, int num_trees, float ratio, int max_depth) {
+	void RandomForest::construct(const std::vector<boost::shared_ptr<Example>>& examples, int num_trees, float ratio, int max_depth, const QMap<unsigned char, float>& priors) {
+		this->priors = priors;
+
 		trees.clear();
 
 		for (int i = 0; i < num_trees; ++i) {
@@ -246,7 +253,7 @@ namespace rf {
 			
 			// construct a decision tree
 			DecisionTree dt;
-			dt.construct(subset, true, max_depth);
+			dt.construct(subset, true, max_depth, priors);
 
 			trees.push_back(dt);
 		}
@@ -276,13 +283,18 @@ namespace rf {
 	int RandomForest::test(const boost::shared_ptr<Example>& example) {
 		if (trees.size() == 0) throw "Random forest is not constructed.";
 
-		QMap<unsigned char, int> histogram;
+		QMap<unsigned char, float> histogram;
 		for (int i = 0; i < trees.size(); ++i) {
 			unsigned char label = trees[i].test(example);
 			if (!histogram.contains(label)) {
 				histogram[label] = 0;
 			}
-			histogram[label]++;
+			if (priors.size() == 0) {
+				histogram[label]++;
+			}
+			else {
+				histogram[label] += priors[label];
+			}
 		}
 
 		// find the maximum vote
